@@ -1,10 +1,10 @@
 ---
 slug: 3
-title: 3/ZK-AGE-VERIFICATION
-name: Wallet-Based Age Verification for Third-Party Services
+title: 3/ZK-TELECOM-IDENTITY-VERIFICATION
+name: Wallet-Based Identity Verification via Telecom VC for Third-Party Services
 status: raw
 category: Standards Track
-tags: zero-knowledge, age-verification, privacy, anonymous-credentials, openac, alcohol-purchase
+tags: zero-knowledge, identity-verification, privacy, anonymous-credentials, openac, telecom-verification
 editor: Nicole Yeh <nicole@ethereum.org>
 contributors:
   - Moven Tsai <moven.tsai@ethereum.org>
@@ -22,23 +22,23 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 # Abstract
 
-This specification defines an OpenAC-based privacy-preserving age-verification protocol for wallet-based proof presentation to third-party services.
+This specification defines an OpenAC-based privacy-preserving identity-verification protocol for wallet-based proof presentation to third-party services.
 
-In the MVP scope, the holder proves possession of a valid Driver License verifiable credential without disclosing raw identity attributes to the merchant.
+In the MVP scope, the holder proves possession of a valid Telecom VC verifiable credential without disclosing raw identity attributes to the merchant.
 
-For the MVP Driver License profile, age eligibility for alcohol purchase is satisfied by proof of possession of a valid Driver License credential under an accepted credential profile in the target deployment jurisdiction whose issuance policy requires the holder to be at least 18 years old.
+For the MVP Telecom VC profile, identity-match eligibility is satisfied by proof of possession of a valid Telecom VC credential under an accepted credential profile, binding the holder's `name`, the last 5 digits of the registered phone number, and the last 3 digits of the registered phone number.
 
-The protocol adopts the OpenAC prepare-reblind-show model and includes device binding for each presentation. The verifier returns only a minimal eligibility result (`pass` / `fail`) plus metadata. Merchant integrations are verifier-service based, with a standalone verifier service or SDK-like integration kit. Passport-based age calculation is not in scope for this version.
+The protocol adopts the OpenAC prepare-reblind-show model and includes device binding for each presentation. The verifier returns only a minimal eligibility result (`pass` / `fail`) plus metadata. Merchant integrations are verifier-service based, with a standalone verifier service or SDK-like integration kit.
 
 # Motivation
 
-Online alcohol purchase flows require age gating, while minimizing unnecessary disclosure of identity data to merchants.
+Online third-party services require lightweight identity verification, while minimizing unnecessary disclosure of identity data to merchants.
 
-This specification defines a primitive that separates age verification from raw identity disclosure by using an OpenAC-based zero-knowledge proof flow integrated with a wallet-based user experience.
+This specification defines a primitive that separates identity verification from raw identity disclosure by using an OpenAC-based zero-knowledge proof flow integrated with a wallet-based user experience.
 
 # OpenAC Profile
 
-This specification defines an application profile of OpenAC for age verification.
+This specification defines an application profile of OpenAC for identity verification.
 
 Conforming implementations MUST:
 
@@ -66,28 +66,31 @@ Implementations MUST provide:
 
 ### 1. Credential Model
 
-The MVP credential in scope is a Driver License verifiable credential.
+The MVP credential in scope is a Telecom VC verifiable credential.
 
-Implementations MUST support proof of credential validity / holder possession for an accepted Driver License credential profile.
+Implementations MUST support proof of credential validity / holder possession for an accepted Telecom VC credential profile.
 
-For the MVP Driver License profile, `age >= 18` eligibility is satisfied by proving possession of a valid Driver License credential under an accepted credential profile in the target deployment jurisdiction whose issuance policy requires the holder to be at least 18 years old.
+The Telecom VC credential profile in scope for this version includes the following authenticated fields:
+
+- `name`
+- last 5 digits of the registered phone number
+- last 3 digits of the registered phone number
+
+For the MVP Telecom VC profile, identity-match eligibility is satisfied by proving possession of a valid Telecom VC credential under an accepted credential profile whose `name` and phone-digit fields are available for selective comparison against verifier-supplied expected values.
 
 This version does not require:
 
-- DOB disclosure,
-- DOB-derived age computation, or
-- a separately asserted `age >= 18` boolean field inside the credential.
+- disclosure of the full phone number, or
+- disclosure of any phone-number digits beyond the last 5.
 
-Passport-based age calculation is not in scope for this version.
-
-This version does not define the exact Driver License credential attribute schema. Implementations MUST use a credential profile whose authenticated payload is sufficient to support:
+This version does not define the exact Telecom VC credential attribute schema beyond the three fields above. Implementations MUST use a credential profile whose authenticated payload is sufficient to support:
 
 1. credential validity / holder possession, and
-2. identification of the credential as an accepted Driver License profile for this verification flow.
+2. identification of the credential as an accepted Telecom VC profile for this verification flow.
 
 ### 2. Verification Session
 
-The merchant backend MUST create a server-side verification session for each checkout attempt that requires alcohol-purchase eligibility verification.
+The merchant backend MUST create a server-side verification session for each checkout attempt that requires identity verification.
 
 A verification session MUST include:
 
@@ -95,7 +98,7 @@ A verification session MUST include:
 - `nonce`
 - `request_uri` or an equivalent signed request object
 - `expires_at`
-- `purpose = alcohol_purchase`
+- `purpose = identity_verification`
 
 The verifier MUST enforce:
 
@@ -115,7 +118,7 @@ The presentation request MUST carry the parameters required for wallet-side vali
 - `schema_version`
 - `expires_at`
 
-This version uses `purpose = alcohol_purchase`.
+This version uses `purpose = identity_verification`.
 
 ### 4. Wallet Request Validation
 
@@ -125,13 +128,13 @@ The wallet MUST reject requests where any of the following checks fail:
 
 - audience validation (`aud`)
 - nonce presence / integrity
-- `purpose == alcohol_purchase`
+- `purpose == identity_verification`
 - `expires_at` has not been exceeded
 - `schema_version` is supported
 
 ### 5. Credential Selection and Local Validation
 
-The wallet MUST select a Driver License verifiable credential for this flow.
+The wallet MUST select a Telecom VC verifiable credential for this flow.
 
 Before proof generation, the wallet MUST perform local validation checks and fail fast when these checks do not pass.
 
@@ -171,16 +174,16 @@ This version does not fix whether the device-bound key is held in a secure eleme
 
 ### 8. Proof Statement
 
-For `purpose = alcohol_purchase`, the prover MUST generate an OpenAC proof package bound to the active verification session showing that:
+For `purpose = identity_verification`, the prover MUST generate an OpenAC proof package bound to the active verification session showing that:
 
-1. the prover possesses the selected Driver License credential,
+1. the prover possesses the selected Telecom VC credential,
 2. the credential is valid under the integrated credential-verification profile,
-3. the credential satisfies the accepted Driver License profile for this verification flow,
+3. the credential satisfies the accepted Telecom VC profile for this verification flow,
 4. the presentation is linked to the prepared state and its fresh re-randomized / reblinded representation used for the current session,
 5. the presentation is device-bound for the current session, and
 6. the proof is bound to the verifier challenge and request context.
 
-For the MVP Driver License profile, successful verification of items 1-5 satisfies the verifier's `age >= 18` eligibility requirement.
+For the MVP Telecom VC profile, successful verification of items 1-5 satisfies the verifier's identity-match eligibility requirement.
 
 The proof MUST bind to:
 
@@ -220,28 +223,28 @@ A minimal metadata set SHOULD include:
 
 Merchant eligibility derived from a successful verification MUST be scoped to the current order / checkout session.
 
-Merchant systems MUST NOT treat a successful alcohol-purchase verification as a permanent identity assertion.
+Merchant systems MUST NOT treat a successful identity verification as a permanent identity assertion.
 
 ## Protocol Flow
 
 Implementations MUST support the following flow:
 
-1. The user initiates an online alcohol purchase flow.
+1. The user initiates an online third-party service flow that requires identity verification.
 2. The merchant frontend requests the merchant backend to start verification.
 3. The merchant backend creates a verification session and requests OpenAC verifier context.
 4. OpenAC returns `session_id`, `nonce`, `request_uri` (or equivalent request object), and `expires_at`.
 5. The merchant frontend displays a QR code or deep link to the wallet.
 6. The wallet fetches the presentation request via `request_uri`.
 7. The wallet validates request fields (`aud`, `nonce`, `purpose`, `schema_version`, `expires_at`).
-8. The wallet selects a Driver License credential and performs local validation.
+8. The wallet selects a Telecom VC credential and performs local validation.
 9. The wallet retrieves or constructs an OpenAC prepared state for the selected credential. If no prepared state exists, the wallet runs the preparation step. Implementations MAY already have precomputed prepared states offline.
 10. The wallet selects one prepared state and performs a fresh re-randomization / reblind step for the current presentation.
 11. The device authorizes the current presentation by signing the session challenge / nonce or by producing an equivalent device-bound authorization input.
-12. The wallet generates the show proof over the re-randomized state, the request context, and the device-binding witness. For the MVP Driver License profile, this establishes age eligibility.
+12. The wallet generates the show proof over the re-randomized state, the request context, and the device-binding witness. For the MVP Telecom VC profile, this establishes identity-match eligibility.
 13. The wallet submits `proof package + public inputs + session_id` to the verifier.
 14. The verifier validates the proof package, the prepared-state relation, the show relation, their linkage, device binding, session binding, and anti-replay conditions.
 15. The verifier returns `pass` / `fail` plus allowed metadata to the merchant backend.
-16. The merchant backend marks the current checkout as eligible or ineligible and continues the purchase flow accordingly.
+16. The merchant backend marks the current checkout as eligible or ineligible and continues accordingly.
 
 ## Circuit Design
 
@@ -262,7 +265,7 @@ The prepare relation is an offline or amortized relation associated with the sel
 
 Private inputs to the prepare relation MUST be sufficient to prove:
 
-- possession of the selected Driver License credential,
+- possession of the selected Telecom VC credential,
 - credential validity under the integrated credential-verification profile, and
 - construction of the prepared state used for later presentations.
 
@@ -278,7 +281,7 @@ The prepare relation MUST enforce that:
 
 1. the selected credential is valid under the integrated credential-verification profile,
 2. the authenticated payload is parsed or normalized as required by that profile,
-3. the credential is recognized as an accepted Driver License profile for this verification flow, and
+3. the credential is recognized as an accepted Telecom VC profile for this verification flow, and
 4. a prepared state is constructed for later linkage to a presentation proof.
 
 ### Re-randomization / Reblind Step
@@ -300,7 +303,7 @@ The show relation is the online, per-presentation relation.
 Private inputs to the show relation MUST be sufficient to prove:
 
 - linkage to the selected prepared state,
-- compatibility with the accepted Driver License profile required for this verification flow, and
+- compatibility with the accepted Telecom VC profile required for this verification flow, and
 - device-bound authorization for the current session.
 
 #### Public Inputs
@@ -324,9 +327,9 @@ The show relation MUST enforce the following claims for the active session:
 
 1. **Credential profile compatibility**
 
-   The presentation is linked to a Driver License credential profile accepted by the verifier for this verification flow.
+   The presentation is linked to a Telecom VC credential profile accepted by the verifier for this verification flow.
 
-   For the MVP Driver License profile, verifier age eligibility is derived from the accepted credential profile and its issuance policy, not from DOB disclosure or in-circuit age computation.
+   For the MVP Telecom VC profile, verifier identity-match eligibility is derived from the accepted credential profile's `name` and phone-digit fields, not from disclosure of the raw full phone number.
 
 2. **Prepare / show linkage**
 
@@ -342,7 +345,7 @@ The show relation MUST enforce the following claims for the active session:
 
    - `nonce`
    - `aud`
-   - `purpose = alcohol_purchase`
+   - `purpose = identity_verification`
 
 5. **Request compatibility**
 
@@ -371,7 +374,7 @@ A minimal proof submission object SHOULD include:
   metadata: {
     schema_version: <string>,
     proof_type: <string>,
-    purpose: "alcohol_purchase"
+    purpose: "identity_verification"
   }
 }
 ```
@@ -388,7 +391,7 @@ A minimal verifier result object SHOULD include:
     expires_at: <timestamp>,
     proof_type: <string>,
     schema_version: <string>,
-    purpose: "alcohol_purchase"
+    purpose: "identity_verification"
   }
 }
 ```
@@ -403,7 +406,7 @@ A minimal verifier result object SHOULD include:
 - validate device binding for the verifier's fresh session challenge or equivalent authorization input,
 - validate that `session_id` identifies an active verification session,
 - validate that submitted public inputs match the active session context,
-- validate `purpose == alcohol_purchase`,
+- validate `purpose == identity_verification`,
 - reject expired sessions / requests,
 - enforce single-use semantics for the session / nonce,
 - reject replayed submissions, and
@@ -413,7 +416,7 @@ A minimal verifier result object SHOULD include:
 
 - ensure the merchant-facing result contains no raw credential fields,
 - maintain operational logging that is sufficient for debugging without storing raw identity data, and
-- document the deployment's device-key protection model and accepted Driver License profile assumptions.
+- document the deployment's device-key protection model and accepted Telecom VC profile assumptions.
 
 ## Error Handling
 
@@ -442,8 +445,8 @@ Error responses SHOULD include:
 ## Interoperability Constraints
 
 - Implementations MUST use the same request semantics for `purpose`, `aud`, `nonce`, `schema_version`, and `expires_at`.
-- Implementations MUST treat `purpose = alcohol_purchase` consistently across wallet, verifier, and merchant integration surfaces.
-- Implementations MUST consistently interpret the accepted Driver License profile used to satisfy `age >= 18` for this flow.
+- Implementations MUST treat `purpose = identity_verification` consistently across wallet, verifier, and merchant integration surfaces.
+- Implementations MUST consistently interpret the accepted Telecom VC profile used to satisfy identity-match eligibility for this flow.
 - Implementations MUST consistently interpret the device-binding requirements of the integrated OpenAC profile.
 - Implementations MUST ensure the merchant receives only `pass` / `fail` plus allowed metadata.
 - Implementations MUST scope successful verification to the current order / checkout session.
@@ -508,16 +511,15 @@ This version requires revocation / invalidation support, but does not yet standa
 
 ## External Trust and Issuance Assumptions
 
-For the MVP Driver License profile, verifier age eligibility depends on a deployment assumption: the accepted Driver License profile in the target deployment jurisdiction is issued only to holders aged 18 or older.
+For the MVP Telecom VC profile, verifier identity-match eligibility depends on a deployment assumption: the accepted Telecom VC profile is issued by a trusted telecom carrier whose subscriber registration process reliably binds the `name` and phone-number fields to the subscriber.
 
-Trust-anchor selection, issuer allowlisting, and validation of jurisdiction-specific issuance policy are external to this specification and MUST be documented by deployments.
+Trust-anchor selection, issuer allowlisting, and validation of carrier-specific issuance policy are external to this specification and MUST be documented by deployments.
 
 ## Known Scope Limits
 
-- Driver License is the only MVP credential in scope.
-- Passport-based age calculation is out of scope for this version.
-- DOB disclosure and DOB-derived age computation are out of scope for the MVP Driver License profile.
-- The exact Driver License attribute schema is not defined in this version.
+- Telecom VC is the only MVP credential in scope.
+- Disclosure of the full phone number, and of phone-number digits beyond the last 5, is out of scope for the MVP Telecom VC profile.
+- The exact Telecom VC attribute schema beyond `name`, the last 5 digits of the phone number, and the last 3 digits of the phone number is not defined in this version.
 - The exact proving backend, commitment scheme, and public-input encoding are not fixed in this version.
 - The revocation source, list location, and concrete revocation mechanism are to be defined.
 
@@ -527,7 +529,7 @@ This specification is intended for:
 
 - integration with a wallet / proof-generation UI,
 - a standalone merchant verifier service or SDK-like integration kit, and
-- merchant flows where checkout eligibility is determined by a privacy-preserving age-verification result.
+- merchant flows where checkout eligibility is determined by a privacy-preserving identity-verification result.
 
 The current implementation track includes:
 
@@ -551,8 +553,8 @@ Specific toolchains such as mobile native bindings, WASM verifier bindings, `mop
 
 # Glossary
 
-**Accepted Driver License profile**
-A Driver License credential profile that the verifier accepts for this verification flow. In the MVP deployment, possession of a valid credential in this profile is sufficient to satisfy the verifier's `age >= 18` policy.
+**Accepted Telecom VC profile**
+A Telecom VC credential profile that the verifier accepts for this verification flow. In the MVP deployment, possession of a valid credential in this profile, together with its `name` and phone-digit fields, is sufficient to satisfy the verifier's identity-match policy.
 
 **Device binding**
 A proof component that binds the current presentation to a device-bound key and to the verifier's fresh session challenge.
