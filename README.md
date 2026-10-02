@@ -396,6 +396,98 @@ A minimal verifier result object SHOULD include:
 }
 ```
 
+## Verifier API
+
+This section specifies the network interface that conforming verifiers SHOULD expose so that merchant backends, wallets, and SDKs can integrate against a stable contract independent of any specific verifier implementation.
+
+The Verifier API does not modify the cryptographic protocol or circuit relations defined in [Specification](#specification). It defines the wire-level operations needed to create sessions, deliver presentation requests to the wallet, accept proof submissions, expose session results, and report errors.
+
+This section describes the 3-party deployment topology used by this specification (merchant backend ↔ verifier ↔ wallet), where the merchant backend and the wallet interact with the verifier through distinct operations rather than a single prover-verifier channel. This differs from the 2-party topology (relying party == verifier) used in [2/ZK-PROOF-OF-PERSONHOOD](../2-zk-proof-of-personhood/README.md); where applicable, the `nonce` used here corresponds to the `challenge` term used in that specification's Verifier API, and both serve the same anti-replay role.
+
+This specification does not use a nullifier. Unlike 2/ZK-PROOF-OF-PERSONHOOD, which uses a nullifier to enforce a permanent one-time verification per `app_id`, this specification scopes eligibility to the current order / checkout session (see [Eligibility Scope](#11-eligibility-scope)) and relies on fresh re-randomization for cross-session unlinkability (see [Unlinkability and Re-randomization](#unlinkability-and-re-randomization)). A persistent nullifier would reintroduce the cross-session linkability this specification is designed to avoid. A future revision MAY introduce a nullifier if a deployment requires duplicate-use prevention (e.g., anti-abuse for a single-use promotion); such a revision MUST document the resulting trade-off against unlinkability.
+
+### Operations
+
+Conforming verifiers MUST support the semantic operations listed below. RECOMMENDED URL paths are provided for HTTP/JSON deployments; gRPC and other transports MAY use equivalent method names.
+
+#### Session Creation
+
+The verifier MUST expose a session creation operation, consumed by the merchant backend.
+
+- RECOMMENDED HTTP endpoint: `POST /session`
+- Request body MUST include `purpose` (`identity_verification`) and `aud`, and SHOULD include `schema_version` and any relying-party context required by the deployment (e.g., a merchant identifier when a verifier serves multiple merchants).
+- Response body MUST include:
+  - `session_id`: a unique identifier for this verification session
+  - `nonce`: a fresh, unpredictable value bound into the presentation request and later the proof
+  - `request_uri`: a reference the wallet uses to retrieve the presentation request, or an equivalent signed request object
+  - `expires_at`: timestamp after which the session MUST be rejected
+- Issued sessions MUST satisfy the freshness and single-use requirements in [Verification Session](#2-verification-session).
+
+#### Presentation Request Retrieval
+
+The verifier MUST expose a presentation request retrieval operation, consumed by the wallet via `request_uri`.
+
+- RECOMMENDED HTTP endpoint: `GET` the opaque `request_uri` returned by Session Creation.
+- Response body MUST include the fields required by [Presentation Request](#3-presentation-request): `nonce`, `aud`, `purpose`, `schema_version`, `expires_at`.
+
+#### Proof Submission
+
+The verifier MUST expose a proof submission operation, consumed by the wallet.
+
+- RECOMMENDED HTTP endpoint: `POST /verify`
+- Request body: the proof submission object specified in [Proof Output Format](#proof-output-format).
+- Response body MUST include:
+  - `decision`: one of `"pass"` or `"fail"`
+  - `error_code`: present when `decision == "fail"`; one of the canonical values listed under [Error Codes](#error-codes)
+  - `error_message`: human-readable supplementary message; SHOULD NOT contain raw proof bytes or other sensitive material
+- Response body MAY include `verified_at` and additional non-PII metadata required for relying-party operation.
+- The verifier MUST perform every validation step required by [Proof Verification](#proof-verification) before returning `pass`.
+- The verifier MUST record `session_id` as consumed per the single-use semantics of [Verification Session](#2-verification-session) before returning `pass`.
+
+#### Session Result Retrieval
+
+Because the merchant backend is not a party to the wallet's proof submission call, the verifier MUST expose a way for the merchant backend to retrieve the outcome of a session it created.
+
+- RECOMMENDED HTTP endpoint: `GET /session/{session_id}/result`
+- Response body MUST include a `status` of `"pending"`, `"pass"`, or `"fail"`, and, once resolved, the same `decision` and metadata fields returned by Proof Submission.
+- Verifiers MAY additionally support a webhook callback, registered at Session Creation, in place of or alongside polling.
+
+#### Status Queries
+
+Verifiers SHOULD expose a read-only status endpoint so that wallets can confirm a credential profile is still accepted before proof generation:
+
+- Accepted credential profile status: RECOMMENDED `GET /credential-profile/status`. Response MUST include an enumeration of the Telecom VC profile identifiers currently accepted by this verifier (matching [Credential Model](#1-credential-model)).
+
+### Error Codes
+
+When `decision == "fail"`, verifiers MUST set `error_code` to one of the following canonical values:
+
+| Code | Meaning |
+| --- | --- |
+| `INVALID_PROOF` | The proof package failed cryptographic verification. |
+| `INVALID_SESSION` | The submitted `session_id` does not match a session created by this verifier. |
+| `EXPIRED_SESSION` | The submitted `session_id` was issued by this verifier but has expired. |
+| `SESSION_ALREADY_USED` | The submitted `session_id` has already been consumed by a prior proof submission. |
+| `INVALID_AUD` | The submitted `aud` does not match the expected audience for this session. |
+| `INVALID_PURPOSE` | The submitted `purpose` is not `identity_verification`. |
+| `UNSUPPORTED_SCHEMA_VERSION` | The submitted `schema_version` is not supported by this verifier. |
+| `PREPARE_SHOW_LINKAGE_MISMATCH` | The show relation does not validate against the prepared-state relation for this presentation. |
+| `DEVICE_BINDING_INVALID` | Device-binding authorization did not validate for the current session. |
+| `MALFORMED_REQUEST` | The submission body could not be parsed against the expected schema. |
+| `INTERNAL_ERROR` | The verifier encountered an internal failure unrelated to proof contents. |
+
+Additional implementation-defined error codes MAY be returned but MUST NOT collide with the canonical names above.
+
+### Authentication
+
+This version does not specify a verifier-to-merchant-backend or verifier-to-wallet authentication mechanism. Deployments MUST document the authentication model they rely on (e.g., mutual TLS, bearer tokens, IP allowlist, none). A future revision MAY standardize this.
+
+### Transport
+
+- HTTP/JSON over TLS is RECOMMENDED for general integration. Request and response bodies MUST be valid UTF-8 JSON conforming to the schemas defined above.
+- gRPC over TLS is OPTIONAL and provides equivalent semantic operations. When gRPC is offered, method names SHOULD parallel the HTTP endpoint names (e.g., `CreateSession`, `Verify`, `SessionResult`, `CredentialProfileStatus`).
+- Other transports (e.g., WebSocket, message queue) MAY be implemented provided the semantic operations and error contract above are preserved.
+
 ## Proof Verification
 
 ### Verifier MUST
@@ -436,9 +528,9 @@ Implementations MUST handle:
 - session mismatch between submission and active verifier context, and
 - replayed proof / replayed session.
 
-Error responses SHOULD include:
+Error responses MUST include:
 
-- error code,
+- error code (set per the canonical taxonomy in [Error Codes](#error-codes)),
 - error message, and
 - error details, when available.
 
